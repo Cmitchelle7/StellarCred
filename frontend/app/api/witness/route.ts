@@ -16,6 +16,30 @@ import accreditationCircuit from "../../../public/circuits/accreditation.json";
 import employmentCircuit from "../../../public/circuits/employment.json";
 import aggregateCircuit from "../../../public/circuits/aggregate.json";
 
+/**
+ * Resolve the current date (UTC days since epoch) used as a public input
+ * for age/expiry claims.
+ *
+ * #304 Ã¢â‚¬â€ the witness must not trust the client clock. We bind to the
+ * Stellar ledger close time (server-side) so a holder cannot choose a
+ * favorable date. If Horizon is unreachable, the request fails closed
+ * rather than falling back to Date.now().
+ */
+async function resolveCurrentDate(): Promise<number> {
+  const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
+  const res = await fetch(`${horizonUrl}/ledgers?order=desc&limit=1`);
+  if (!res.ok) {
+    throw new Error('Horizon unavailable: cannot resolve current date');
+  }
+  const data = await res.json();
+  const closedAt = data?._embedded?.records?.[0]?.closed_at;
+  if (!closedAt) {
+    throw new Error('Horizon ledger missing closed_at timestamp');
+  }
+  // closed_at is ISO 8601; convert to UTC days since epoch.
+  return Math.floor(new Date(closedAt).getTime() / 86_400_000);
+}
+
 // Default claim params -- used when a credential has no protocol-specific values.
 const DEFAULT_THRESHOLD_YEARS = "18";
 const DEFAULT_INCOME_THRESHOLD = "200000";
@@ -30,7 +54,7 @@ const RESTRICTED_LEN = 8;
 const asFieldString = (v: string | number | undefined, fallback: string): string =>
   v === undefined ? fallback : String(v);
 
-function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
+async function buildInputs(type: string, cred: Record<string, unknown>): Promise<InputMap> {
   const value = String(cred.value);
   const salt = String(cred.salt);
   const commitment = String(cred.commitment);
@@ -47,7 +71,7 @@ function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
         salt,
         ...sigInputs,
         commitment,
-        current_date: String(Math.floor(Date.now() / 86_400_000)),
+        current_date: String(await resolveCurrentDate()),
         threshold_years: asFieldString(params.threshold_years, DEFAULT_THRESHOLD_YEARS),
       };
     case "income":
@@ -116,7 +140,7 @@ function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
         age_commitment: String(cred.age_commitment),
         age_issuer_x: cred.age_issuer_x as number[],
         age_issuer_y: cred.age_issuer_y as number[],
-        age_current_date: String(Math.floor(Date.now() / 86_400_000)),
+        age_current_date: String(await resolveCurrentDate()),
         age_threshold_years: String(cred.age_threshold_years),
         num_credentials: String(cred.num_credentials),
       };
@@ -156,7 +180,7 @@ export async function POST(req: NextRequest) {
     return response;
   };
 
-  // Size-guarded read — an oversized payload is refused before it is parsed,
+  // Size-guarded read Ã¢â‚¬â€ an oversized payload is refused before it is parsed,
   // and the body is never logged.
   const parsed = await readJsonBody<{ type?: string; credential?: Record<string, unknown> }>(req);
   if (!parsed.ok) {
@@ -202,9 +226,9 @@ export async function POST(req: NextRequest) {
     const { Noir } = await import("@noir-lang/noir_js");
     const circuit = circuitFor(type);
     const noir = new Noir(circuit as never);
-    const inputs = buildInputs(type, credential);
+    const inputs = await buildInputs(type, credential);
     const { witness } = await noir.execute(inputs);
-    // Serialize Uint8Array → hex string for JSON transport.
+    // Serialize Uint8Array Ã¢â€ â€™ hex string for JSON transport.
     const hex = Buffer.from(witness).toString("hex");
     logger.info(stripSensitiveFields({
       event: "witness_response_sent",
