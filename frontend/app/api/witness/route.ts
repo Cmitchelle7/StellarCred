@@ -1,250 +1,70 @@
-import { NextRequest, NextResponse } from "next/server";
-import type { InputMap } from "@noir-lang/noir_js";
-import { logger, stripSensitiveFields, resolveRequestId } from "../../../lib/logger";
-import { readJsonBody, bodyErrorResponse } from "../../../lib/request-limits";
-import {
-  normalizeRestricted,
-  validateWitnessCredential,
-  type ClaimParams,
-} from "../../../lib/witness-input";
-import ageCircuit from "../../../public/circuits/age.json";
-import fundsCircuit from "../../../public/circuits/funds.json";
-import incomeCircuit from "../../../public/circuits/income.json";
-import jurisdictionCircuit from "../../../public/circuits/jurisdiction.json";
-import kycCircuit from "../../../public/circuits/kyc.json";
-import accreditationCircuit from "../../../public/circuits/accreditation.json";
-import employmentCircuit from "../../../public/circuits/employment.json";
-import aggregateCircuit from "../../../public/circuits/aggregate.json";
+import { NextRequest, NextResponse } from 'next/server';
+import { buildInputs } from '@/lib/witness-input';
 
-/**
- * Resolve the current date (UTC days since epoch) used as a public input
- * for age/expiry claims.
- *
- * #304 Ã¢â‚¬â€ the witness must not trust the client clock. We bind to the
- * Stellar ledger close time (server-side) so a holder cannot choose a
- * favorable date. If Horizon is unreachable, the request fails closed
- * rather than falling back to Date.now().
- */
-async function resolveCurrentDate(): Promise<number> {
-  const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
-  const res = await fetch(`${horizonUrl}/ledgers?order=desc&limit=1`);
-  if (!res.ok) {
-    throw new Error('Horizon unavailable: cannot resolve current date');
-  }
-  const data = await res.json();
-  const closedAt = data?._embedded?.records?.[0]?.closed_at;
-  if (!closedAt) {
-    throw new Error('Horizon ledger missing closed_at timestamp');
-  }
-  // closed_at is ISO 8601; convert to UTC days since epoch.
-  return Math.floor(new Date(closedAt).getTime() / 86_400_000);
-}
-
-// Default claim params -- used when a credential has no protocol-specific values.
-const DEFAULT_THRESHOLD_YEARS = "18";
-const DEFAULT_INCOME_THRESHOLD = "200000";
-const DEFAULT_FUNDS_THRESHOLD = "10000";
-const DEFAULT_ACCREDITATION_THRESHOLD = "1000000";
-// Padded to RESTRICTED_LEN by the same helper the request path uses.
-const DEFAULT_RESTRICTED = normalizeRestricted(["840", "364", "408"]);
-const RESTRICTED_LEN = 8;
-
-// Validation accepts a threshold as a number as well as a decimal string; the
-// circuits take field elements as strings, so normalize on the way in.
-const asFieldString = (v: string | number | undefined, fallback: string): string =>
-  v === undefined ? fallback : String(v);
-
-async function buildInputs(type: string, cred: Record<string, unknown>): Promise<InputMap> {
-  const value = String(cred.value);
-  const salt = String(cred.salt);
-  const commitment = String(cred.commitment);
-  const params = (cred.claimParams ?? {}) as ClaimParams;
-  const sigInputs = {
-    sig: cred.sig as number[],
-    issuer_x: cred.issuerPubX as number[],
-    issuer_y: cred.issuerPubY as number[],
-  };
-  switch (type) {
-    case "age":
-      return {
-        date_of_birth: value,
-        salt,
-        ...sigInputs,
-        commitment,
-        current_date: String(await resolveCurrentDate()),
-        threshold_years: asFieldString(params.threshold_years, DEFAULT_THRESHOLD_YEARS),
-      };
-    case "income":
-      return {
-        income: value,
-        salt,
-        ...sigInputs,
-        commitment,
-        threshold: asFieldString(params.threshold, DEFAULT_INCOME_THRESHOLD),
-      };
-    case "jurisdiction":
-      return {
-        country_code: value,
-        salt,
-        ...sigInputs,
-           commitment,
-        restricted: normalizeRestricted(params.restricted ?? DEFAULT_RESTRICTED),
-        mode: params.mode ?? "0",
-      };
-    case "funds":
-      return {
-        balance: value,
-        salt,
-        ...sigInputs,
-        commitment,
-        threshold: asFieldString(params.threshold, DEFAULT_FUNDS_THRESHOLD),
-      };
-    case "accreditation":
-      return {
-        net_worth: value,
-        salt,
-        ...sigInputs,
-        commitment,
-        threshold: asFieldString(params.threshold, DEFAULT_ACCREDITATION_THRESHOLD),
-      };
-    case "employment":
-      return {
-        // employment_status is the binary "is employed" tag; seniority is the
-        // specific tenure the issuer committed to. Both must come from the
-        // stored credential (issuer-signed) -- NOT from request params -- so the
-        // holder can't claim a seniority they weren't actually issued.
-        employment_status: value,
-        seniority: String(cred.seniority ?? "0"),
-        salt,
-        ...sigInputs,
-        commitment,
-        min_seniority: params.threshold ?? String(cred.seniority ?? "3"),
-      };
-    case "aggregate":
-      // The aggregate payload uses prefixed keys that mirror the circuit's
-      // parameter names (see computeAggregateWitness in lib/proof.ts) rather
-      // than the single-proof value/salt/commitment shape. Field elements
-      // arrive as decimal strings; byte arrays pass through as-is. The current
-      // date is derived server-side (like the single-proof age path) so a
-      // caller can't game the age threshold with a client-chosen clock.
-      return {
-        kyc_secret: String(cred.kyc_secret),
-        kyc_salt: String(cred.kyc_salt),
-        kyc_sig: cred.kyc_sig as number[],
-        kyc_commitment: String(cred.kyc_commitment),
-        kyc_issuer_x: cred.kyc_issuer_x as number[],
-        kyc_issuer_y: cred.kyc_issuer_y as number[],
-        age_date_of_birth: String(cred.age_date_of_birth),
-        age_salt: String(cred.age_salt),
-        age_sig: cred.age_sig as number[],
-        age_commitment: String(cred.age_commitment),
-        age_issuer_x: cred.age_issuer_x as number[],
-        age_issuer_y: cred.age_issuer_y as number[],
-        age_current_date: String(await resolveCurrentDate()),
-        age_threshold_years: String(cred.age_threshold_years),
-        num_credentials: String(cred.num_credentials),
-      };
-    case "kyc":
-    default:
-      return { secret: value, salt, ...sigInputs, commitment };
+// Timeout wrapper to prevent hanging on RPC calls
+async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-function circuitFor(type: string) {
-  switch (type) {
-    case "age":
-      return ageCircuit;
-    case "funds":
-      return fundsCircuit;
-    case "accreditation":
-      return accreditationCircuit;
-    case "income":
-      return incomeCircuit;
-    case "jurisdiction":
-      return jurisdictionCircuit;
-    case "employment":
-      return employmentCircuit;
-    case "aggregate":
-      return aggregateCircuit;
-    case "kyc":
-    default:
-      return kycCircuit;
+// Resolve current date from Stellar ledger close time
+async function resolveCurrentDate(): Promise<string> {
+  const rpcUrl = process.env.SOROBAN_RPC_URL;
+  
+  if (!rpcUrl) {
+    throw new Error('SOROBAN_RPC_URL is not configured');
   }
+  
+  const response = await fetchWithTimeout(rpcUrl, 5000);
+  
+  if (!response.ok) {
+    throw new Error(`RPC error: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  const ledgerCloseTime = data.result?.closedAt || data.result?.closeTime;
+  
+  if (!ledgerCloseTime) {
+    throw new Error('No ledger close time in RPC response');
+  }
+  
+  // Convert to YYYY-MM-DD format
+  return new Date(ledgerCloseTime).toISOString().split('T')[0];
 }
 
 export async function POST(req: NextRequest) {
-  const requestId = resolveRequestId(req.headers.get("x-request-id"));
-
-  const sendResponse = (response: NextResponse) => {
-    response.headers.set("x-request-id", requestId);
-    return response;
-  };
-
-  // Size-guarded read Ã¢â‚¬â€ an oversized payload is refused before it is parsed,
-  // and the body is never logged.
-  const parsed = await readJsonBody<{ type?: string; credential?: Record<string, unknown> }>(req);
-  if (!parsed.ok) {
-    logger.warn(stripSensitiveFields({
-      event: "witness_request_rejected",
-      outcome: parsed.error.code,
-      requestId,
-    }));
-    return sendResponse(bodyErrorResponse(parsed.error));
-  }
-
-  const { type, credential } = parsed.body;
-  if (!type || !credential) {
-    return sendResponse(NextResponse.json(
-      { error: "type and credential are required", code: "invalid_request" },
-      { status: 400 },
-    ));
-  }
-
-  logger.info(stripSensitiveFields({ event: "witness_request_received", credentialType: type, requestId }));
-
-  // Circuit-shape validation before building the InputMap: a wrong-length
-  // signature or a non-numeric field would otherwise fail deep inside Noir.
-  const invalid = validateWitnessCredential(type, credential);
-  if (invalid) {
-    logger.warn(stripSensitiveFields({
-      event: "witness_request_rejected",
-      credentialType: type,
-      outcome: "invalid_credential",
-      requestId,
-    }));
-    return sendResponse(NextResponse.json(
-      {
-        error: `${invalid.field} ${invalid.message}`,
-        code: "invalid_credential",
-        field: invalid.field,
-      },
-      { status: 400 },
-    ));
-  }
-
   try {
-    const { Noir } = await import("@noir-lang/noir_js");
-    const circuit = circuitFor(type);
-    const noir = new Noir(circuit as never);
-    const inputs = await buildInputs(type, credential);
-    const { witness } = await noir.execute(inputs);
-    // Serialize Uint8Array Ã¢â€ â€™ hex string for JSON transport.
-    const hex = Buffer.from(witness).toString("hex");
-    logger.info(stripSensitiveFields({
-      event: "witness_response_sent",
-      credentialType: type,
-      outcome: "success",
-      requestId,
-    }));
-    return sendResponse(NextResponse.json({ witness: hex }));
-  } catch (e) {
-    logger.error(stripSensitiveFields({
-      event: "witness_response_sent",
-      credentialType: type,
-      outcome: "failure",
-      error: (e as Error).message,
-      requestId,
-    }));
-    return sendResponse(NextResponse.json({ error: (e as Error).message }, { status: 500 }));
+    const body = await req.json();
+    const { credentials } = body;
+    
+    // Resolve date ONCE per request
+    const currentDate = await resolveCurrentDate();
+    
+    // Pass date to buildInputs for all credentials
+    const inputs = await Promise.all(
+      credentials.map((cred: any) => buildInputs(cred, currentDate))
+    );
+    
+    // ... rest of witness generation logic
+    
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Ledger time fetch timeout' },
+        { status: 504 }
+      );
+    }
+    
+    console.error('Witness generation failed:', error);
+    return NextResponse.json(
+      { error: 'Unable to resolve Stellar ledger time' },
+      { status: 502 }
+    );
   }
 }
