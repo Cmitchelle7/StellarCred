@@ -763,6 +763,10 @@ function HolderInner() {
                   Where your credentials live
                 </Link>
               </p>
+              <p className="faint" style={{ fontSize: "0.75rem", maxWidth: 560, lineHeight: 1.6, margin: "0.5rem 0 0" }}>
+                Backups are encrypted with PBKDF2 (600k iterations). Decryption
+                may take a few seconds on slower devices.
+              </p>
             </div>
           )}
         </div>
