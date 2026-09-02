@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     symbol_short,
@@ -320,7 +318,9 @@ fn set_vk_emits_event() {
                 )
                     .into_val(&env),
                 EventVkSet {
-                    admin: admin.clone()
+                    admin: admin.clone(),
+                    version: 1u32,
+                    contract_version: 1_000_000,
                 }
                 .into_val(&env),
             ),

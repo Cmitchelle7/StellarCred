@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use proptest::prelude::*;
 use soroban_sdk::{
