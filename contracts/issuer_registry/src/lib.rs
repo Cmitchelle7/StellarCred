@@ -31,7 +31,7 @@ use soroban_sdk::{
 /// Payload emitted when an issuer is registered or updated.
 /// Topics: ("iss_reg", "register")
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventIssuerRegistered {
     /// The address of the newly registered issuer.
     pub issuer: Address,
@@ -42,7 +42,7 @@ pub struct EventIssuerRegistered {
 /// Payload emitted when an issuer is revoked.
 /// Topics: ("iss_reg", "revoked")
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventIssuerRevoked {
     /// The address of the revoked issuer.
     pub issuer: Address,

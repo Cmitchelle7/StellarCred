@@ -47,6 +47,7 @@ function makeIngester(overrides?: Partial<IngesterHealth>): Ingester {
     reconcile: async () => 0,
     start: () => {},
     stop: () => {},
+    shutdown: async () => {},
     getHealth: () => ({ ...health }),
     getMetrics: () => ({ ...metrics }),
   };

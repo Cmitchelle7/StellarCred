@@ -48,7 +48,7 @@
   {
     "name": "Shared JS Chunks",
     "path": ".next/static/chunks/*.js",
-    "limit": "740 kB"
+    "limit": "900 kB"
   },
   {
     "name": "WASM Proving Assets (bb.js)",

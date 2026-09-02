@@ -50,7 +50,7 @@ use soroban_sdk::{
 
 /// Payload emitted when a proof is successfully verified and stored.
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventProofSubmitted {
     pub holder: Address,
     pub issuer: Address,
@@ -60,7 +60,7 @@ pub struct EventProofSubmitted {
 
 /// Payload emitted when an issuer revokes a holder's proof.
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventProofRevoked {
     pub holder: Address,
     pub issuer: Address,
@@ -75,7 +75,7 @@ pub struct EventProofRevoked {
 /// admin. The field name is kept as `admin` to preserve the event ABI that
 /// existing indexers parse.
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventPaused {
     pub admin: Address,
     pub paused_at: u64,
@@ -87,7 +87,7 @@ pub struct EventPaused {
 /// The `admin` field carries the address that performed the unpause — under
 /// RBAC this is the holder of the `pauser` role (see [`EventPaused`]).
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventUnpaused {
     pub admin: Address,
     pub unpaused_at: u64,
