@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { hasSeenTour, markTourSeen, resetTour } from "@/lib/onboarding";
+import { hasSeenTour, markTourSeen } from "@/lib/onboarding";
 
 interface Step {
   target: string;
@@ -48,7 +48,6 @@ export function OnboardingTour() {
 
     const targetEl = document.querySelector(step.target);
     if (!targetEl) {
-      // Fallback: center the tooltip in the viewport
       setTooltipStyle({
         top: "50%",
         left: "50%",
@@ -118,7 +117,6 @@ export function OnboardingTour() {
   const handleDismiss = () => {
     setIsVisible(false);
     markTourSeen();
-    // Clean up highlight
     document.querySelectorAll(".tour-highlight").forEach((el) => {
       el.classList.remove("tour-highlight");
     });
@@ -130,10 +128,6 @@ export function OnboardingTour() {
     } else {
       handleDismiss();
     }
-  };
-
-  const handleSkip = () => {
-    handleDismiss();
   };
 
   if (!isVisible) return null;
@@ -171,7 +165,7 @@ export function OnboardingTour() {
             {stepIndex < TOUR_STEPS.length - 1 ? "Next" : "Done"}
           </button>
         </div>
-        <button className="tour-skip" onClick={handleSkip}>
+        <button className="tour-skip" onClick={handleDismiss}>
           Skip tour
         </button>
       </div>
