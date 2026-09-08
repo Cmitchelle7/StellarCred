@@ -1,6 +1,6 @@
 [package]
 name = "gated_pool"
-version = "0.0.0"
+version = "1.0.0"
 edition = "2021"
 publish = false
 
@@ -18,3 +18,4 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 proof_registry = { path = "../proof_registry" }
 credential_verifier = { path = "../credential_verifier" }
 issuer_registry = { path = "../issuer_registry" }
+proptest = "1.4"
